@@ -157,7 +157,34 @@ def find_apple_music_artwork(artist: str, album: str) -> Optional[bytes]:
     return None
 
 
-def fetch_cover(artist: str, album: str) -> tuple[Optional[bytes], str]:
+def find_google_images_artwork(artist: str, album: str, api_key: str, search_engine_id: str) -> Optional[bytes]:
+    """Use the official Google Programmable Search API as the final fallback."""
+    if not api_key or not search_engine_id:
+        return None
+    search_terms = f'"{artist}" "{album}" album cover' if artist else f'"{album}" album cover'
+    url = "https://www.googleapis.com/customsearch/v1?" + urllib.parse.urlencode({
+        "key": api_key,
+        "cx": search_engine_id,
+        "q": search_terms,
+        "searchType": "image",
+        "imgSize": "large",
+        "num": 5,
+        "safe": "active",
+    })
+    data = request_json(url)
+    items = data.get("items", []) if isinstance(data, dict) else []
+    for item in items:
+        link = item.get("link")
+        if not link:
+            continue
+        try:
+            return request_bytes(link)
+        except Exception:
+            continue
+    return None
+
+
+def fetch_cover(artist: str, album: str, google_api_key: str = "", google_search_engine_id: str = "") -> tuple[Optional[bytes], str]:
     try:
         cover = find_cover_art_archive(artist, album)
         if cover:
@@ -170,6 +197,12 @@ def fetch_cover(artist: str, album: str) -> tuple[Optional[bytes], str]:
             return cover, "Apple Music / iTunes"
     except Exception:
         pass
+    try:
+        cover = find_google_images_artwork(artist, album, google_api_key, google_search_engine_id)
+        if cover:
+            return cover, "Google Images (Programmable Search)"
+    except Exception:
+        pass
     return None, "No matching artwork found"
 
 
@@ -177,9 +210,11 @@ class AlbumCoverApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_NAME)
-        self.minsize(760, 510)
+        self.minsize(760, 600)
         self.folder_var = tk.StringVar()
         self.overwrite_var = tk.BooleanVar(value=False)
+        self.google_key_var = tk.StringVar()
+        self.google_cx_var = tk.StringVar()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._build_ui()
         self.after(100, self._consume_events)
@@ -194,7 +229,17 @@ class AlbumCoverApp(tk.Tk):
         folder_row.pack(fill="x")
         ttk.Entry(folder_row, textvariable=self.folder_var).pack(side="left", fill="x", expand=True)
         ttk.Button(folder_row, text="Choose music folder…", command=self.choose_folder).pack(side="left", padx=(8, 0))
-        ttk.Checkbutton(shell, text="Replace existing JPG cover files", variable=self.overwrite_var).pack(anchor="w", pady=10)
+        ttk.Checkbutton(shell, text="Refresh covers already in album folders", variable=self.overwrite_var).pack(anchor="w", pady=(10, 8))
+
+        google_box = ttk.LabelFrame(shell, text="Optional final fallback — Google Images", padding=10)
+        google_box.pack(fill="x", pady=(0, 10))
+        ttk.Label(google_box, text="Uses Google's official Programmable Search API only after the music sources fail. These details stay only in this session.").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
+        ttk.Label(google_box, text="API key").grid(row=1, column=0, sticky="w")
+        ttk.Entry(google_box, textvariable=self.google_key_var, show="•", width=28).grid(row=1, column=1, sticky="ew", padx=(6, 14))
+        ttk.Label(google_box, text="Search engine ID").grid(row=1, column=2, sticky="w")
+        ttk.Entry(google_box, textvariable=self.google_cx_var, width=28).grid(row=1, column=3, sticky="ew", padx=(6, 0))
+        google_box.columnconfigure(1, weight=1)
+        google_box.columnconfigure(3, weight=1)
 
         action_row = ttk.Frame(shell)
         action_row.pack(fill="x")
@@ -228,9 +273,13 @@ class AlbumCoverApp(tk.Tk):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
-        threading.Thread(target=self._worker, args=(root, self.overwrite_var.get()), daemon=True).start()
+        threading.Thread(
+            target=self._worker,
+            args=(root, self.overwrite_var.get(), self.google_key_var.get().strip(), self.google_cx_var.get().strip()),
+            daemon=True,
+        ).start()
 
-    def _worker(self, root: Path, overwrite: bool) -> None:
+    def _worker(self, root: Path, overwrite: bool, google_api_key: str, google_search_engine_id: str) -> None:
         self.events.put(("status", "Scanning album folders…"))
         albums = scan_album_folders(root, lambda message: self.events.put(("log", message)))
         self.events.put(("maximum", len(albums)))
@@ -245,7 +294,7 @@ class AlbumCoverApp(tk.Tk):
                 skipped += 1
                 self.events.put(("log", f"Skipped existing cover: {target.name}"))
             else:
-                image, source = fetch_cover(item.artist, item.album)
+                image, source = fetch_cover(item.artist, item.album, google_api_key, google_search_engine_id)
                 if image:
                     target.write_bytes(image)
                     saved += 1
