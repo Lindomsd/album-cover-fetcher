@@ -28,6 +28,7 @@ except ImportError:  # Makes the installation error clearer inside the UI.
 APP_NAME = "Album Cover Fetcher"
 USER_AGENT = "AlbumCoverFetcher/1.0 (personal library artwork tool)"
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".mp4", ".ogg", ".opus", ".aac", ".wma", ".wav", ".aiff"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,20 @@ def read_album_tags(audio_path: Path) -> tuple[str, str]:
     artist = first_tag(audio, ("albumartist", "artist"))
     album = first_tag(audio, ("album",))
     return artist, album
+
+
+def remove_existing_images(folder: Path, keep: set[Path]) -> list[Path]:
+    """Remove image files directly inside an album folder, retaining supplied paths."""
+    deleted: list[Path] = []
+    keep_resolved = {path.resolve() for path in keep}
+    for path in folder.iterdir():
+        if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        if path.resolve() in keep_resolved:
+            continue
+        path.unlink()
+        deleted.append(path)
+    return deleted
 
 
 def scan_album_folders(root: Path, log: Callable[[str], None]) -> list[AlbumFolder]:
@@ -210,9 +225,11 @@ class AlbumCoverApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_NAME)
-        self.minsize(760, 600)
+        self.minsize(760, 650)
         self.folder_var = tk.StringVar()
         self.overwrite_var = tk.BooleanVar(value=False)
+        self.remove_images_var = tk.BooleanVar(value=False)
+        self.folder_jpg_var = tk.BooleanVar(value=True)
         self.google_key_var = tk.StringVar()
         self.google_cx_var = tk.StringVar()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -229,7 +246,9 @@ class AlbumCoverApp(tk.Tk):
         folder_row.pack(fill="x")
         ttk.Entry(folder_row, textvariable=self.folder_var).pack(side="left", fill="x", expand=True)
         ttk.Button(folder_row, text="Choose music folder…", command=self.choose_folder).pack(side="left", padx=(8, 0))
-        ttk.Checkbutton(shell, text="Refresh covers already in album folders", variable=self.overwrite_var).pack(anchor="w", pady=(10, 8))
+        ttk.Checkbutton(shell, text="Refresh covers already in album folders", variable=self.overwrite_var).pack(anchor="w", pady=(10, 3))
+        ttk.Checkbutton(shell, text="After saving a cover, remove all other image files in that album folder", variable=self.remove_images_var).pack(anchor="w", pady=3)
+        ttk.Checkbutton(shell, text="Also save a folder.jpg copy for Windows folder thumbnails", variable=self.folder_jpg_var).pack(anchor="w", pady=(3, 8))
 
         google_box = ttk.LabelFrame(shell, text="Optional final fallback — Google Images", padding=10)
         google_box.pack(fill="x", pady=(0, 10))
@@ -275,11 +294,14 @@ class AlbumCoverApp(tk.Tk):
         self.log.configure(state="disabled")
         threading.Thread(
             target=self._worker,
-            args=(root, self.overwrite_var.get(), self.google_key_var.get().strip(), self.google_cx_var.get().strip()),
+            args=(
+                root, self.overwrite_var.get(), self.remove_images_var.get(), self.folder_jpg_var.get(),
+                self.google_key_var.get().strip(), self.google_cx_var.get().strip(),
+            ),
             daemon=True,
         ).start()
 
-    def _worker(self, root: Path, overwrite: bool, google_api_key: str, google_search_engine_id: str) -> None:
+    def _worker(self, root: Path, overwrite: bool, remove_images: bool, create_folder_jpg: bool, google_api_key: str, google_search_engine_id: str) -> None:
         self.events.put(("status", "Scanning album folders…"))
         albums = scan_album_folders(root, lambda message: self.events.put(("log", message)))
         self.events.put(("maximum", len(albums)))
@@ -296,9 +318,24 @@ class AlbumCoverApp(tk.Tk):
             else:
                 image, source = fetch_cover(item.artist, item.album, google_api_key, google_search_engine_id)
                 if image:
+                    # Save the new cover before removing anything. A failed write leaves
+                    # all existing artwork untouched.
+                    folder_target = item.folder / "folder.jpg"
                     target.write_bytes(image)
+                    if create_folder_jpg and folder_target != target:
+                        folder_target.write_bytes(image)
+                    if remove_images:
+                        keep = {target}
+                        if create_folder_jpg:
+                            keep.add(folder_target)
+                        deleted = remove_existing_images(item.folder, keep)
+                        if deleted:
+                            self.events.put(("log", f"Removed {len(deleted)} old image(s) from: {item.folder.name}"))
                     saved += 1
-                    self.events.put(("log", f"Saved: {target.name}  [{source}]"))
+                    saved_text = f"Saved: {target.name}  [{source}]"
+                    if create_folder_jpg and folder_target != target:
+                        saved_text += " + folder.jpg"
+                    self.events.put(("log", saved_text))
                 else:
                     missing += 1
                     self.events.put(("log", f"No cover found: {item.artist or 'Unknown artist'} — {item.album}"))
