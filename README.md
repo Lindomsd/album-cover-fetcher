@@ -13,6 +13,18 @@ Choose the top-level folder holding your albums, select **Find and save album co
 
 It never changes or deletes audio files. Existing cover JPGs are left alone unless **Refresh covers already in album folders** is selected.
 
+## Optional: clear older artwork safely
+
+You can select **After saving a cover, move other images in that album folder to Recycle Bin / Trash**.
+
+- The sourced cover is saved first as `Album Title.jpg`.
+- Only other image files directly inside that same album folder are moved to your operating system's **Recycle Bin / Trash** — not permanently deleted.
+- It handles JPG/JPEG, PNG, WebP, GIF, BMP and TIFF files; it does not scan subfolders and never touches your music files.
+- If Windows, macOS or Linux denies permission for an image, that file is kept and the activity log names it. The rest of the library continues.
+- You can restore any moved image from Recycle Bin / Trash. To update an existing album-title cover as well, tick **Refresh covers already in album folders**.
+
+The app uses the folder permissions already granted to your account. If your music folder is protected, allow the app (or Python, when running from source) access in your operating system's security settings, then run it again. On Windows, this can be **Windows Security → Ransomware protection → Controlled folder access → Allow an app through Controlled folder access**.
+
 ## Reliable sources
 
 - [Cover Art Archive](https://coverartarchive.org/) / [MusicBrainz](https://musicbrainz.org/): community-curated, release-specific music metadata and cover art.
