@@ -13,14 +13,6 @@ Choose the top-level folder holding your albums, select **Find and save album co
 
 It never changes or deletes audio files. Existing cover JPGs are left alone unless **Refresh covers already in album folders** is selected.
 
-## Keep one clean folder cover
-
-Enable **After saving a cover, remove all other image files in that album folder** to clear old artwork such as `cover.png`, `front.jpeg`, scans, GIFs and other common image formats. The cleanup is limited to the individual album folder — it does **not** enter subfolders and it never touches audio files.
-
-For Windows Explorer, **Also save a `folder.jpg` copy for Windows folder thumbnails** is on by default. Alongside the requested `Album Title.jpg`, this gives Windows a recognised folder-cover file.
-
-Safety rule: old images are removed **only after a new cover has been found and downloaded successfully**. If no source finds a cover, the folder is left as it was. To replace an existing album-title cover and apply the cleanup, enable **Refresh covers already in album folders** as well.
-
 ## Reliable sources
 
 - [Cover Art Archive](https://coverartarchive.org/) / [MusicBrainz](https://musicbrainz.org/): community-curated, release-specific music metadata and cover art.
